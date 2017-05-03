@@ -56,6 +56,10 @@
 #include "mididrv/OSSMidiPortDriver.h"
 #endif
 
+#ifdef WITH_LOGITECH_LCD
+#include "LogitechLCDLib.h"
+#endif
+
 static const int ACTUAL_SETTINGS_VERSION = 2;
 
 static Master *instance = NULL;
@@ -112,6 +116,14 @@ Master::Master() {
 	qRegisterMetaType<MidiSession *>("MidiSession*");
 	qRegisterMetaType<MidiSession **>("MidiSession**");
 	qRegisterMetaType<SynthState>("SynthState");
+
+#ifdef WITH_LOGITECH_LCD
+    if (LogiLcdInit(L"mt32emu_qt", LOGI_LCD_TYPE_MONO))
+    {
+        LogiLcdMonoSetText(0, L"Munt: MT-32 Emulator");
+        LogiLcdUpdate();
+    }
+#endif
 }
 
 Master::~Master() {
@@ -144,6 +156,10 @@ Master::~Master() {
 	}
 
 	MasterClock::cleanup();
+
+#ifdef WITH_LOGITECH_LCD
+    LogiLcdShutdown();
+#endif
 }
 
 void Master::initAudioDrivers() {

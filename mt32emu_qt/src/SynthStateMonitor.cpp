@@ -20,6 +20,52 @@
 #include "ui_SynthWidget.h"
 #include "font_6x8.h"
 
+#ifdef WITH_LOGITECH_LCD
+#include <vector>
+#include "LogitechLCDLib.h"
+namespace
+{
+    const std::vector<BYTE> logiPixelMatrixEmpty(LOGI_LCD_MONO_HEIGHT * LOGI_LCD_MONO_WIDTH, 0);
+    std::vector<BYTE> logiPixelMatrix(logiPixelMatrixEmpty);
+    wchar_t* logiTextTitle(L"Munt: MT-32 Emulator");
+    wchar_t* logiTextMidiMessageOff(L"MIDI MESSAGE: -");
+    wchar_t* logiTextMidiMessageOn(L"MIDI MESSAGE: *");
+    wchar_t* logiTextBlank(L"");
+
+    void MuntLogiLcdPaint(const bool clear)
+    {
+        if (clear)
+        {
+            logiPixelMatrix = logiPixelMatrixEmpty;
+            LogiLcdMonoSetText(3, logiTextBlank);
+        }
+        LogiLcdMonoSetBackground(logiPixelMatrix.data());
+        LogiLcdMonoSetText(0, logiTextTitle);
+        LogiLcdMonoSetText(1, logiTextBlank); // this line is for ROM info (TODO)
+        LogiLcdMonoSetText(2, logiTextBlank); // this line is for MT-32 LCD emu
+        LogiLcdUpdate();
+    }
+
+    void MuntLogiLcdSetLED(bool enabled)
+    {
+/*
+        for (std::size_t pixelRow(33); pixelRow < 43; ++pixelRow)
+        {
+            for (std::size_t pixelCol(75); pixelCol < 85; ++pixelCol)
+            {
+                logiPixelMatrix[pixelRow * LOGI_LCD_MONO_WIDTH + pixelCol] =
+                    (enabled ? 0xff : 0);
+            }
+        }
+*/
+        LogiLcdMonoSetText(3, enabled ?
+                               logiTextMidiMessageOn :
+                               logiTextMidiMessageOff);
+        MuntLogiLcdPaint(false);
+    }
+}
+#endif
+
 static const MasterClockNanos LCD_MESSAGE_DISPLAYING_NANOS = 2 * MasterClock::NANOS_PER_SECOND;
 static const MasterClockNanos LCD_TIMBRE_NAME_DISPLAYING_NANOS = 1 * MasterClock::NANOS_PER_SECOND;
 static const MasterClockNanos MIDI_MESSAGE_LED_MINIMUM_NANOS = 60 * MasterClock::NANOS_PER_MILLISECOND;
@@ -96,12 +142,18 @@ void SynthStateMonitor::enableMonitor(bool enable) {
 	} else {
 		enabled = false;
 	}
+#ifdef WITH_LOGITECH_LCD
+	MuntLogiLcdPaint(true);
+#endif
 }
 
 void SynthStateMonitor::handleSynthStateChange(SynthState state) {
 	enableMonitor(state == SynthState_OPEN);
 	lcdWidget.reset();
 	midiMessageLED.setColor(&COLOR_GRAY);
+#ifdef WITH_LOGITECH_LCD
+	MuntLogiLcdPaint(true);
+#endif
 
 	for (unsigned int i = 0; i < partialCount; i++) {
 		partialStateLED[i]->setColor(&partialStateColor[PartialState_INACTIVE]);
@@ -117,6 +169,9 @@ void SynthStateMonitor::handleMIDIMessagePlayed() {
 	if (ui->synthFrame->isVisible() && synthRoute->getState() == SynthRouteState_OPEN) {
 		midiMessageLED.setColor(&COLOR_GREEN);
 		midiMessageLEDStartNanos = MasterClock::getClockNanos();
+#ifdef WITH_LOGITECH_LCD
+		MuntLogiLcdSetLED(true);
+#endif
 	}
 }
 
@@ -161,8 +216,14 @@ void SynthStateMonitor::handleUpdate() {
 	if (midiMessageOn) {
 		midiMessageLED.setColor(&COLOR_GREEN);
 		midiMessageLEDStartNanos = nanosNow;
+#ifdef WITH_LOGITECH_LCD
+		MuntLogiLcdSetLED(true);
+#endif
 	} else if ((nanosNow - midiMessageLEDStartNanos) > MIDI_MESSAGE_LED_MINIMUM_NANOS) {
 		midiMessageLED.setColor(&COLOR_GRAY);
+#ifdef WITH_LOGITECH_LCD
+		MuntLogiLcdSetLED(false);
+#endif
 	}
 }
 
@@ -223,6 +284,9 @@ void LCDWidget::paintEvent(QPaintEvent *) {
 	QPainter lcdPainter(this);
 	if (monitor.synthRoute->getState() != SynthRouteState_OPEN) {
 		lcdPainter.drawPixmap(0, 0, lcdOffBackground);
+#ifdef WITH_LOGITECH_LCD
+		MuntLogiLcdPaint(true);
+#endif
 		return;
 	}
 	lcdPainter.drawPixmap(0, 0, lcdOnBackground);
@@ -233,8 +297,7 @@ void LCDWidget::paintEvent(QPaintEvent *) {
 	yat = 0;
 
 	for (int i = 0; i < 20; i++) {
-		unsigned char c;
-		c = 0x20;
+		unsigned char c(0x20);
 		if (i < lcdText.size()) {
 			c = lcdText[i];
 		}
@@ -255,10 +318,19 @@ void LCDWidget::paintEvent(QPaintEvent *) {
 				fval = Font_6x8[c][t];
 			}
 			for (int m = 4; m >= 0; --m) {
+#ifdef WITH_LOGITECH_LCD
+				const std::size_t lpmIndex((22 + ((yat-1)/2)) * LOGI_LCD_MONO_WIDTH + (xat/2));
+#endif
 				if ((fval >> m) & 1) {
 					lcdPainter.fillRect(xat, yat, 2, 2, lcdFgColor);
+#ifdef WITH_LOGITECH_LCD
+					logiPixelMatrix[lpmIndex] = 0xff;
+#endif
 				} else {
 					lcdPainter.fillRect(xat, yat, 2, 2, lcdBgColor);
+#ifdef WITH_LOGITECH_LCD
+					logiPixelMatrix[lpmIndex] = 0;
+#endif
 				}
 				xat += 2;
 			}
@@ -267,6 +339,9 @@ void LCDWidget::paintEvent(QPaintEvent *) {
 		}
 		xstart += 12;
 	}
+#ifdef WITH_LOGITECH_LCD
+	MuntLogiLcdPaint(false);
+#endif
 }
 
 void LCDWidget::handleLCDMessageDisplayed(const QString useText) {
